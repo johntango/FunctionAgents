@@ -4,7 +4,6 @@ import { OpenAI} from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs";
-
 // Initialize Express server
 const app = express();
 app.use(bodyParser.json());
