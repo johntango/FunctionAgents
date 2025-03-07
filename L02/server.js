@@ -46,7 +46,8 @@ async function getFunctions() {
 // Route to interact with OpenAI API
 app.post('/execute-function', async (req, res) => {
     const { functionName, parameters } = req.body;
-
+    let args = JSON.parse(parameters)
+    console.log("args: "+args);
     // Import all functions
     const functions = await getFunctions();
 
@@ -56,7 +57,7 @@ app.post('/execute-function', async (req, res) => {
 
     try {
         // Call the function
-        const result = await functions[functionName].execute(...Object.values(parameters));
+        const result = await functions[functionName].execute(...Object.values(args));
         console.log(`result: ${JSON.stringify(result)}`);
         res.json(result);
     } catch (err) {
