@@ -11,7 +11,7 @@ This demo environment is intended to impress by showing how an agent’s capabil
 # Hypothetical import of the new OpenAI Agent API.
 # For this demo, if the package is unavailable, we define a dummy structure.
 try:
-    import openai_agent_api
+    import openai
 except ImportError:
     # Dummy placeholder if openai_agent_api is not available.
     def dummy_agent_factory():
@@ -84,4 +84,10 @@ def improved_power_function(x):
 
 if __name__ == "__main__":
     # Demo environment: iterative self-improvement demonstration.
-    input_value =_
+    input_value = 2
+    agent = create_self_improving_agent()
+    print("Starting Self-Improving Agent Demo...")
+    agent["iterative_improvement"](input_value, iterations=3, delay=2)
+    print("Demo complete.")
+# Note: This code is a hypothetical demonstration and does not interact with any real OpenAI API.
+# The self-improvement mechanism is simulated through code generation and execution.
