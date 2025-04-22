@@ -90,12 +90,19 @@ app.post('/api/openai-call', async (req, res) => {
     ];
     try {
         // Make OpenAI API call
-        const response = await openai.chat.completions.create({
+        /*const response = await openai.chat.completions.create({
             model: 'gpt-4o',
             messages: messages,
             tools: availableFunctions
         });
-       
+        */
+        let response = await openai.responses.create({
+            model: "gpt-4o",
+            tools: [ { type: "web_search_preview" } ],
+            input: "What was a positive news story that happened today?",
+        });
+
+        console.log(response.output_text);
        // Extract the arguments for get_delivery_date
 // Note this code assumes we have already determined that the model generated a function call. See below for a more production ready example that shows how to check if the model generated a function call
         const toolCall = response.choices[0].message.tool_calls[0];
@@ -152,16 +159,8 @@ app.post('/api/prompt', async (req, res) => {
     }
 });
 // Route to interact with OpenAI API
-app.post('/api/computer_use', async (req, res) => {
+app.post('/api/computeruse', async (req, res) => {
     const { functionName, parameters } = req.body;
-
-    // Import all functions
-    const functions = await getFunctions();
-
-    if (!functions[functionName]) {
-        return res.status(404).json({ error: 'Function not found' });
-    }
-
     try {
         const response = await openai.responses.create({
             model: "computer-use-preview",
@@ -175,13 +174,14 @@ app.post('/api/computer_use', async (req, res) => {
             input: "I'm looking for a new camera. Help me find the best one.",
         });
         console.log(response.output);
-        res.json({response.output});
+        let message = response.output;
+        res.json({message: message, state: state});
     } catch (err) {
         res.status(500).json({ error: 'Function execution failed', details: err.message });
     }
 });
 // Start the server
-const PORT = 3000;
+const PORT = 3001;
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 });

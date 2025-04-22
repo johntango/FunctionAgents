@@ -134,6 +134,11 @@
           route = `api/assistant/${action}`;
         } else if (selectedTarget === "chatgpt") {
           route = `api/chatgpt/${action}`;
+        } else if (selectedTarget === "computeruse") {
+          route = `api/computeruse/${action}`;
+        } else {
+          console.error("Invalid target selected");
+          return;
         }
       
         console.log(`sending data: ${JSON.stringify(state)} to ${route}`);
@@ -209,6 +214,7 @@
             <select id="target_selection" class="form-select" onchange="toggleAssistantButtons()">
               <option value="chatgpt">ChatGPT</option>
               <option value="assistant">Assistant</option>
+              <option value="computeruse">Computer Use</option>
             </select>
           </div>
         </div>
@@ -286,7 +292,7 @@
                 <button
                   class="btn btn-primary mr-1"
                   type="submit"
-                  onclick="sendRequest('api/openai-call')"
+                  onclick= "sendRequest('api/openai-call')"
                 >
                   Run Agent
                 </button>

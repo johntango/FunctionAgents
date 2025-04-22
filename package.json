@@ -3,7 +3,7 @@
     "body-parser": "^1.20.3",
     "express": "^4.21.0",
     "fs": "^0.0.1-security",
-    "openai": "^4.67.2",
+    "openai": "^4.95.1",
     "path": "^0.12.7",
     "purl": "^1.0.4"
   },
