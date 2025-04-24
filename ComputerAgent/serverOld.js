@@ -4,7 +4,6 @@ import { OpenAI} from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs";
-import { start } from 'repl';
 
 // Initialize Express server
 const app = express();
@@ -81,106 +80,9 @@ app.post('/api/execute-function', async (req, res) => {
     }
 });
 
-app.post('/api/chat_response/get_vector_store', async (req, res) => {
-    const { vector_store_name } = req.body;
-    try {
-        const vectorStores = await openai.vectorStores.list();
-
-        const vectorStore = vectorStores.data.find(store => store.name === vector_store_name);
-        if (!vectorStore) {
-            return res.status(404).json({ error: 'Vector store not found' });
-        }
-        // save vector store id to state
-        state.vector_store_id = vectorStore.id;
-
-        console.log(`Got ${vectorStore.name} with id ${state.vector_store_id}`);
-        res.json({ message:vectorStore.name, state: state });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to retrieve vector store', details: error.message });
-    }
-});
-    
-app.post('/api/chat_response/create_vector_store', async (req, res) => {
-    let { vector_store_id } = req.body;
-
-    // if the vector store id is not provided, create a new vector store
-    if (!vector_store_id) {
-        try {
-            const vectorStore = await openai.vectorStores.create({
-                name: "John Docs",
-                description: "John's documents",
-                purpose: "vector_store"
-            });
-            state.vector_store_id = vectorStore.id;
-            console.log(`Created ${vectorStore.name}`);
-        } catch (error) {
-            res.status(500).json({ error: 'Failed to create vector store', details: error.message });
-        }
-    } else {
-        state.vector_store_id = vector_store_id;
-    }
-    try {
-        // Now add files to the vector store
-        // get path to chatBotRAG directory
-        let dir = path.resolve(process.cwd(), "./RAGData");
-        const files = fs.readdirSync(dir);
-// strip off the file extension .txt 
-
-        let file_ids = []
-        for (const file of files) {
-            let response = await openai.files.create({
-                    file: fs.createReadStream(path.resolve(dir, file)),
-                    purpose: "user_data"
-                } );
-            
-            console.log(`File ${response.id} created`);
-            file_ids.push(response.id);
-        }
-        console.log(`File ids: ${JSON.stringify(file_ids)}`);
-    // make vector_store_id a string
-        let vec_store_id = String(vector_store_id);
-        for (let file_id of file_ids) {
-   
-            let vector_store = await openai.vectorStores.files.create(
-                vec_store_id,
-                {"file_id": file_id}
-        );
-        }
-
-        console.log(`Added files ${file_ids} to vector store ${vector_store_id}`);
-        // Now we can use the vector store to search for files
-
-
-        let response = await openai.responses.create({
-            model: "gpt-4o-mini",
-            tools: [{
-                type: "file_search",
-                "vector_store_ids": [vector_store_id],
-            }],
-            input: "What does John like ?",
-        });
-
-
-        res.json({ message:response.output_text, state: state });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to retrieve vector store', details: error.message });
-    }
-});
-// Route to get the prompt from the user
-app.post('/api/chat_response/prompt', async (req, res) => {
-    // just update the state with the new prompt
-    try {
-        state.user_message = req.body.user_message;
-        res.status(200).json({ message: `got prompt ${state.user_message}`, "state": state });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: 'User Message Failed', "state": state });
-    }
-}
-)
 // Example to interact with OpenAI API and get function descriptions
-app.post('/api/chat_response/run', async (req, res) => {
-    const { user_message, vector_store_id, tools } = req.body;
+app.post('/api/openai-call', async (req, res) => {
+    const { user_message } = req.body;
 
     const functions = await getFunctions();
     const availableFunctions = Object.values(functions).map(fn => fn.details);
@@ -190,37 +92,16 @@ app.post('/api/chat_response/run', async (req, res) => {
         { role: 'user', content: user_message }
     ];
     try {
-        let response = await openai.responses.create({
-            model: "gpt-4o-mini",
-            tools: [{
-                type: "file_search",
-                "vector_store_ids": [vector_store_id],
-            }, ...tools],
-            input: messages,
-        });
-
-        console.log(`response: ${JSON.stringify(response.output_text)}`);
-        res.json({ message:response.output_text, state: state })
-    }
-    catch (error) {
-        console.log(`error: ${JSON.stringify(error)}`);
-        res.status(500).json({ error: 'OpenAI API failed', details: error.message });
-    }
-});
-
-    
         // Make OpenAI API call
-        /*
-        
-        const response = await openai.chat.completions.create({
+        /*const response = await openai.chat.completions.create({
             model: 'gpt-4o',
             messages: messages,
             tools: availableFunctions
         });
-        
-        console.log(`Web Search Example`);
+        */
+
         // Web Search Example
-        response = await openai.responses.create({
+        let response = await openai.responses.create({
             model: "gpt-4o",
             tools: [ { type: "web_search_preview" } ],
             input: "What was a positive news story that happened today?",
@@ -228,14 +109,21 @@ app.post('/api/chat_response/run', async (req, res) => {
 
         console.log(response.output_text);
 
-        console.log(`Web Search Example`);
+
          // File Search Example
-         // get list of files from chatBotRAG 
-   
-    
+        const productDocs = await openai.vectorStores.create({
+            name: "Product Documentation",
+            file_ids: [file1.id, file2.id, file3.id],
+        });
 
-
-        
+        response = await openai.responses.create({
+            model: "gpt-4o-mini",
+            tools: [{
+                type: "file_search",
+                vector_store_ids: [productDocs.id],
+            }],
+            input: "What is deep research by OpenAI?",
+        });
 
         console.log(response.output_text);
 // Computer Use Example
@@ -252,12 +140,9 @@ app.post('/api/chat_response/run', async (req, res) => {
             input: "I'm looking for a new camera. Help me find the best one.",
         });
 
-        console.log(response.output);
+console.log(response.output);
 
-        console.log(response.output_text);
-      
-
-
+console.log(response.output_text);
        // Extract the arguments for get_delivery_date
 // Note this code assumes we have already determined that the model generated a function call. See below for a more production ready example that shows how to check if the model generated a function call
         const toolCall = response.choices[0].message.tool_calls[0];
@@ -302,9 +187,17 @@ app.post('/api/chat_response/run', async (req, res) => {
         res.status(500).json({ error: 'OpenAI API failed', details: error.message });
     }
 });
-*/
-
-/*
+app.post('/api/prompt', async (req, res) => {
+    // just update the state with the new prompt
+    state = req.body;
+    try {
+        res.status(200).json({ message: `got prompt ${state.user_message}`, "state": state });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'User Message Failed', "state": state });
+    }
+});
 // Route to interact with OpenAI API
 app.post('/api/computeruse', async (req, res) => {
     const { functionName, parameters } = req.body;
@@ -327,7 +220,6 @@ app.post('/api/computeruse', async (req, res) => {
         res.status(500).json({ error: 'Function execution failed', details: err.message });
     }
 });
-*/
 // Start the server
 const PORT = 3001;
 app.listen(PORT, () => {

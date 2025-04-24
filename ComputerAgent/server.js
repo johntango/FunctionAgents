@@ -1,9 +1,9 @@
 import express from 'express';
 import bodyParser from 'body-parser';
-import { OpenAI} from 'openai';
+import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from "fs";
+import fs from 'fs';
 
 // Initialize Express server
 const app = express();
@@ -12,123 +12,157 @@ app.use(bodyParser.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Serve static files
 app.use(express.static(path.resolve(process.cwd(), './public')));
 
 // OpenAI API configuration
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-  let state = {
-        agent:false,
-        chat_response:true,
-        assistant_id: "",
-        assistant_name: "",
-        dir_path: "",
-        news_path: "",
-        thread_id: "",
-        user_message: "",
-        run_id: "",
-        run_status: "",
-        vector_store_name: "",
-        vector_store_id: "",
-        tools:[],
-        mcp_tools:[],
-        parameters: []
-      };
-// Default route to serve index.html for any undefined routes
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Shared in-memory state with version
+let state = {
+  version: 0,
+  agent: false,
+  chat_response: true,
+  assistant_id: "",
+  assistant_name: "",
+  dir_path: "",
+  news_path: "",
+  thread_id: "",
+  user_message: "",
+  run_id: "",
+  run_status: "",
+  vector_store_name: "",
+  vector_store_id: "",
+  tools: [],
+  mcp_tools: [],
+  parameters: []
+};
+
+// Default route to serve index.html
 app.get('*', (req, res) => {
-    res.sendFile(path.resolve(process.cwd(), './public/index.html'));
+  res.sendFile(path.resolve(process.cwd(), './public/index.html'));
 });
+
 async function getFunctions() {
-   
-    const files = fs.readdirSync(path.resolve(process.cwd(), "./functions"));
-    const openAIFunctions = {};
-
-    for (const file of files) {
-        if (file.endsWith(".js")) {
-            const moduleName = file.slice(0, -3);
-            const modulePath = `./functions/${moduleName}.js`;
-            const { details, execute } = await import(modulePath);
-
-            openAIFunctions[moduleName] = {
-                "details": details,
-                "execute": execute
-            };
-        }
+  const files = fs.readdirSync(path.resolve(process.cwd(), './functions'));
+  const openAIFunctions = {};
+  for (const file of files) {
+    if (file.endsWith('.js')) {
+      const moduleName = file.slice(0, -3);
+      const modulePath = `./functions/${moduleName}.js`;
+      const { details, execute } = await import(modulePath);
+      openAIFunctions[moduleName] = { details, execute };
     }
-    return openAIFunctions;
+  }
+  return openAIFunctions;
 }
 
-// Route to interact with OpenAI API
-app.post('/api/execute-function', async (req, res) => {
-    const { functionName, parameters } = req.body;
+// Helper to increment version and send delta
+function sendDelta(res, message, delta) {
+  state.version++;
+  const stateDelta = { ...delta };
+  res.json({ message, stateDelta, version: state.version });
+}
 
-    // Import all functions
-    const functions = await getFunctions();
+// =========================
+// chat_response routes
+// =========================
 
-    if (!functions[functionName]) {
-        return res.status(404).json({ error: 'Function not found' });
-    }
-
-    try {
-        // Call the function
-        const result = await functions[functionName].execute(...Object.values(parameters));
-        console.log(`result: ${JSON.stringify(result)}`);
-        res.json(result);
-    } catch (err) {
-        res.status(500).json({ error: 'Function execution failed', details: err.message });
-    }
+app.post('/api/chat_response/execute-function', async (req, res) => {
+  const { functionName, parameters } = req.body;
+  const functions = await getFunctions();
+  if (!functions[functionName]) {
+    return res.status(404).json({ error: 'Function not found' });
+  }
+  try {
+    const result = await functions[functionName].execute(...Object.values(parameters));
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: 'Function execution failed', details: err.message });
+  }
 });
 
-// Example to interact with OpenAI API and get function descriptions
-app.post('/api/openai-call', async (req, res) => {
-    const { user_message } = req.body;
+app.post('/api/chat_response/get_vector_store', async (req, res) => {
+  const { vector_store_name } = req.body;
+  try {
+    const vectorStores = await openai.vectorStores.list();
+    const vectorStore = vectorStores.data.find(v => v.name === vector_store_name);
+    if (!vectorStore) {
+      return res.status(404).json({ error: 'Vector store not found' });
+    }
+    state.vector_store_id = vectorStore.id;
+    return sendDelta(res,
+      `selected ${vectorStore.name}`,
+      { vector_store_id: state.vector_store_id }
+    );
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to retrieve vector store', details: err.message });
+  }
+});
 
-    const functions = await getFunctions();
-    const availableFunctions = Object.values(functions).map(fn => fn.details);
-    console.log(`availableFunctions: ${JSON.stringify(availableFunctions)}`);
-    let messages = [
-        { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'user', content: user_message }
-    ];
-    try {
-        // Make OpenAI API call
-        /*const response = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages: messages,
-            tools: availableFunctions
-        });
-        */
+app.post('/api/chat_response/create_vector_store', async (req, res) => {
+  let { vector_store_id } = req.body;
+  try {
+    if (!vector_store_id) {
+      const vectorStore = await openai.vectorStores.create({
+        name: 'John Docs',
+        description: "John's documents",
+        purpose: 'vector_store'
+      });
+      vector_store_id = vectorStore.id;
+    }
+    state.vector_store_id = vector_store_id;
+    // upload files, add to vector store...
+    // (omitted for brevity)
+    return sendDelta(res,
+      `vector store ready`,
+      { vector_store_id: state.vector_store_id }
+    );
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create vector store', details: err.message });
+  }
+});
 
-        // Web Search Example
+app.post('/api/chat_response/search_web', (req, res) => {
+  const tool = { type: 'web_search_preview' };
+  state.tools = [...state.tools, tool];
+  return sendDelta(res,
+    'web_search tool enabled',
+    { tools: state.tools }
+  );
+});
+
+app.post('/api/chat_response/prompt', (req, res) => {
+  state.user_message = req.body.user_message;
+  return sendDelta(res,
+    `got prompt ${state.user_message}`,
+    { user_message: state.user_message }
+  );
+});
+
+app.post('/api/chat_response/run', async (req, res) => {
+  const { user_message, vector_store_id, tools } = req.body;
+  state.tools = tools;
+  // check if file_search tool is enabled then inject its vector_store_id
+   state.tools = state.tools.map(tool => {
+    if (tool.type === 'file_search') {
+        // Preserve any existing props, override vector_store_ids
+        return {
+        ...tool,
+        vector_store_ids: [ state.vector_store_id ]
+        };
+    }
+    // Leave all other tools untouched
+    return tool;
+    });
+  const functions = await getFunctions();
+  const avail = Object.values(functions).map(fn => fn.details);
+  //if computer use tool is enabled then add functions to available tools
+    if (state.tools.some(tool => tool.type === 'computer_use_preview')) {
+        state.tools = [...state.tools, ...avail];
+        // Computer Use Example
+
         let response = await openai.responses.create({
-            model: "gpt-4o",
-            tools: [ { type: "web_search_preview" } ],
-            input: "What was a positive news story that happened today?",
-        });
-
-        console.log(response.output_text);
-
-
-         // File Search Example
-        const productDocs = await openai.vectorStores.create({
-            name: "Product Documentation",
-            file_ids: [file1.id, file2.id, file3.id],
-        });
-
-        response = await openai.responses.create({
-            model: "gpt-4o-mini",
-            tools: [{
-                type: "file_search",
-                vector_store_ids: [productDocs.id],
-            }],
-            input: "What is deep research by OpenAI?",
-        });
-
-        console.log(response.output_text);
-// Computer Use Example
-
-        response = await openai.responses.create({
             model: "computer-use-preview",
             tools: [{
                 type: "computer_use_preview",
@@ -140,88 +174,89 @@ app.post('/api/openai-call', async (req, res) => {
             input: "I'm looking for a new camera. Help me find the best one.",
         });
 
-console.log(response.output);
-
-console.log(response.output_text);
-       // Extract the arguments for get_delivery_date
-// Note this code assumes we have already determined that the model generated a function call. See below for a more production ready example that shows how to check if the model generated a function call
-        const toolCall = response.choices[0].message.tool_calls[0];
-
-// Extract the arguments for get_delivery_date
-// Note this code assumes we have already determined that the model generated a function call. 
-        if (toolCall) {
-            const functionName = toolCall.function.name;
-            const parameters = JSON.parse(toolCall.function.arguments);
-
-            const result = await functions[functionName].execute(...Object.values(parameters));
-// note that we need to respond with the function call result to the model quoting the tool_call_id
-            const function_call_result_message = {
-                role: "tool",
-                content: JSON.stringify({
-                    result: result
-                }),
-                tool_call_id: response.choices[0].message.tool_calls[0].id
-            };
-            // add to the end of the messages array to send the function call result back to the model
-            messages.push(response.choices[0].message);
-            messages.push(function_call_result_message);
-            const completion_payload = {
-                model: "gpt-4o",
-                messages: messages,
-            };
-            // Call the OpenAI API's chat completions endpoint to send the tool call result back to the model
-            const final_response = await openai.chat.completions.create({
-                model: completion_payload.model,
-                messages: completion_payload.messages
-            });
-            // Extract the output from the final response
-            let output = final_response.choices[0].message.content 
-
-
-            res.json({ message:output, state: state });
-        } else {
-            res.json({ message: 'No function call detected.' });
-        }
-
-    } catch (error) {
-        res.status(500).json({ error: 'OpenAI API failed', details: error.message });
+        console.log(response.output_text);
+         return sendDelta(res,
+            response.output_text,
+            { run_status: 'completed' }
+            );
     }
+  try {
+    const response = await openai.responses.create({
+      model: 'gpt-4o-mini',
+      tools: [...state.tools],
+      input: [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: user_message }
+      ]
+    });
+    return sendDelta(res,
+      response.output_text,
+      { run_status: 'completed' }
+    );
+  } catch (err) {
+    return res.status(500).json({ error: 'OpenAI API failed', details: err.message });
+  }
 });
-app.post('/api/prompt', async (req, res) => {
-    // just update the state with the new prompt
-    state = req.body;
-    try {
-        res.status(200).json({ message: `got prompt ${state.user_message}`, "state": state });
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).json({ message: 'User Message Failed', "state": state });
-    }
+
+// =========================
+// assistant routes
+// =========================
+
+app.post('/api/assistant/get_vector_store', (req, res) => {
+  // mirror /chat_response/get_vector_store
+  return sendDelta(res, 'assistant get_vector_store stub', {});
 });
-// Route to interact with OpenAI API
-app.post('/api/computeruse', async (req, res) => {
-    const { functionName, parameters } = req.body;
-    try {
-        const response = await openai.responses.create({
-            model: "computer-use-preview",
-            tools: [{
-                type: "computer_use_preview",
-                display_width: 1024,
-                display_height: 768,
-                environment: "browser",
-            }],
-            truncation: "auto",
-            input: "I'm looking for a new camera. Help me find the best one.",
-        });
-        console.log(response.output);
-        let message = response.output;
-        res.json({message: message, state: state});
-    } catch (err) {
-        res.status(500).json({ error: 'Function execution failed', details: err.message });
-    }
+app.post('/api/assistant/create_vector_store', (req, res) => {
+  return sendDelta(res, 'assistant create_vector_store stub', {});
 });
-// Start the server
-const PORT = 3001;
+app.post('/api/assistant/prompt', (req, res) => {
+  state.user_message = req.body.user_message;
+  return sendDelta(res, `assistant got prompt ${state.user_message}`, { user_message: state.user_message });
+});
+app.post('/api/assistant/run', (req, res) => {
+  return sendDelta(res, 'assistant run stub', {});
+});
+app.post('/api/assistant/search_web', (req, res) => {
+  return sendDelta(res, 'assistant search_web stub', {});
+});
+app.post('/api/assistant/run_code', (req, res) => {
+  return sendDelta(res, 'assistant run_code stub', {});
+});
+app.post('/api/assistant/assistant', (req, res) => {
+  return sendDelta(res, 'create assistant stub', {});
+});
+app.post('/api/assistant/thread', (req, res) => {
+  return sendDelta(res, 'create thread stub', {});
+});
+
+// =========================
+// agent routes
+// =========================
+
+app.post('/api/agent/get_vector_store', (req, res) => {
+  return sendDelta(res, 'agent get_vector_store stub', {});
+});
+app.post('/api/agent/create_vector_store', (req, res) => {
+  return sendDelta(res, 'agent create_vector_store stub', {});
+});
+app.post('/api/agent/prompt', (req, res) => {
+  state.user_message = req.body.user_message;
+  return sendDelta(res, `agent got prompt ${state.user_message}`, { user_message: state.user_message });
+});
+app.post('/api/agent/run', (req, res) => {
+  return sendDelta(res, 'agent run stub', {});
+});
+app.post('/api/agent/search_web', async (req, res) => {
+  // example: immediate search
+  state.tools.push({ type: 'web_search_preview' });
+  return sendDelta(res, 'agent web_search enabled', { tools: state.tools });
+});
+app.post('/api/agent/run_code', (req, res) => {
+  return sendDelta(res, 'agent run_code stub', {});
+});
+
+// Start server
+const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });

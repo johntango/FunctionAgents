@@ -1,2 +1,2 @@
 # Responses API works. 
-I need to polish this for computer use.
+I need to manage the tools. 
