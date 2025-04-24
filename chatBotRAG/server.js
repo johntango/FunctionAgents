@@ -178,16 +178,37 @@ app.post('/api/chat_response', async (req, res) => {
         { role: 'user', content: user_message }
     ];
     try {
+        let response = await openai.responses.create({
+            model: "gpt-4o-mini",
+            tools: [{
+                type: "file_search",
+                "vector_store_ids": [state.vector_store_id],
+            }],
+            input: messages,
+        });
+
+        console.log(`response: ${JSON.stringify(response.output_text)}`);
+        res.json({ message:response.output_text, state: state })
+    }
+    catch (error) {
+        console.log(`error: ${JSON.stringify(error)}`);
+        res.status(500).json({ error: 'OpenAI API failed', details: error.message });
+    }
+});
+
+    
         // Make OpenAI API call
-        /*const response = await openai.chat.completions.create({
+        /*
+        
+        const response = await openai.chat.completions.create({
             model: 'gpt-4o',
             messages: messages,
             tools: availableFunctions
         });
-        */
+        
         console.log(`Web Search Example`);
         // Web Search Example
-        let response = await openai.responses.create({
+        response = await openai.responses.create({
             model: "gpt-4o",
             tools: [ { type: "web_search_preview" } ],
             input: "What was a positive news story that happened today?",
@@ -222,6 +243,9 @@ app.post('/api/chat_response', async (req, res) => {
         console.log(response.output);
 
         console.log(response.output_text);
+      
+
+
        // Extract the arguments for get_delivery_date
 // Note this code assumes we have already determined that the model generated a function call. See below for a more production ready example that shows how to check if the model generated a function call
         const toolCall = response.choices[0].message.tool_calls[0];
@@ -297,6 +321,7 @@ app.post('/api/computeruse', async (req, res) => {
         res.status(500).json({ error: 'Function execution failed', details: err.message });
     }
 });
+*/
 // Start the server
 const PORT = 3001;
 app.listen(PORT, () => {
